@@ -1,3 +1,6 @@
 [submodule "java"]
 	path = java
 	url = git@github.com:yorche3/java.git
+[submodule "python"]
+	path = python
+	url = git@github.com:yorche3/python.git
