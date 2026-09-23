@@ -1,0 +1,4 @@
+ada	alr init --lib {module}	alire.toml, {module}.gpr, config/	alr -C test run	-	deferred	-	-
+php	mkdir -p src test + composer require --dev phpunit/phpunit	composer.json, phpunit.xml, .gitignore	composer test	php -l src/{Module}.php	tool	mkdir -p src test && composer require --dev phpunit/phpunit	-
+python	uv init --lib	pyproject.toml, conftest.py	pytest	python3 -m compileall -q src	deferred	-	-
+ruby	mkdir -p src test	Gemfile, .rspec	bundle exec rspec	ruby -c src/{module}.rb	manual	mkdir -p src test	-

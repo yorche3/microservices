@@ -1,0 +1,12 @@
+[submodule "ruby"]
+	path = ruby
+	url = git@github.com:yorche3/ruby2.git
+[submodule "php"]
+	path = php
+	url = git@github.com:yorche3/php2.git
+[submodule "python"]
+	path = python
+	url = git@github.com:yorche3/python2.git
+[submodule "ada"]
+	path = ada
+	url = git@github.com:yorche3/ada2.git
