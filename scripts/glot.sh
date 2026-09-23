@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# glot 0.12.0 — contrato, dispatcher, almacén de estado (L1), asignación (L2),
-# catálogo (L2.5), ejecución (L3), delegación (L4), creación (L5), evidencia y
-# cierre (L6), perfiles de modelo por encargo (L6.5) e higiene y punteros (L7):
-# `status`, `pointer` y `clean`, con el commit del monorepo en manos de `save`.
+# glot 1.0.0 — el ciclo completo, en un archivo con dos modos: se **ejecuta** como
+# programa y se **carga** con `source` (capa cargable de la L8), donde `glot` es una
+# función de bash que hace el `cd` real de `use`. `install` deja la copia estable,
+# el bloque del rc y el completado; `doctor` cierra el diagnóstico del entorno.
 #
 # Versión viva del script: las versiones cerradas se archivan en versions/.
 # No asume rutas del usuario: el script se localiza con BASH_SOURCE y la raíz del
@@ -30,9 +30,16 @@
 #   ./scripts/glot.sh list
 #   ./scripts/glot.sh unset lang
 
-set -euo pipefail
+# Las opciones del shell **no** se tocan aquí (regla 13 del contrato): se fijan en la
+# rama de ejecución, al final del archivo, porque cargado con `source` este script no
+# puede tocar las del usuario. Toda la lógica vive en funciones que salen con `return`.
+#
+# Shell options are **not** touched here (contract rule 13): they are set in the
+# execution branch at the end of the file, because when loaded with `source` this
+# script must not change the user's ones. All the logic lives in functions using
+# `return`.
 
-GLOT_VERSION="0.12.0"
+GLOT_VERSION="1.0.0"
 
 # Contrato L0: stdout solo dato, stderr solo diagnóstico.
 # Códigos: 0 correcto · 1 error de entorno · 2 uso incorrecto · 3 estado ilegible
@@ -3652,7 +3659,10 @@ _glot_cmd_use() {
 
 # --- dispatcher --------------------------------------------------------------
 
-glot() {
+# _glot_main — dispatcher: lee los flags globales, resuelve el verbo y lo ejecuta. Se
+# llama desde la rama de ejecución (programa), nunca desde la capa cargable, que delega
+# en el programa para no divergir en nada.
+_glot_main() {
     # Inicializa las variables de estado globales / Initialize global state variables
     local cmd=""
 
@@ -3806,4 +3816,44 @@ glot() {
     esac
 }
 
-glot "$@"
+# Un solo archivo, dos modos (regla 15 del contrato):
+#   - **programa**: `./scripts/glot.sh <verbo>` fija las opciones del shell en este
+#     proceso y ejecuta el dispatcher;
+#   - **cargado**: `source glot.sh` define la función `glot` y **no ejecuta nada**. Esa
+#     función delega en el programa —mismas opciones, mismo comportamiento, cero
+#     divergencia— y la única diferencia es el `cd` real de `use`, que solo puede hacer
+#     una función en la shell actual. En ensayo (`-n`) no hay `cd`: la salida es un plan.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    set -euo pipefail
+    _glot_main "$@"
+else
+    _GLOT_SELF="${BASH_SOURCE[0]}"
+    glot() {
+        local arg=""
+        local verb=""
+        local dry=0
+        local path=""
+        local rc=0
+
+        for arg in "$@"; do
+            case "$arg" in
+                -n | --dry-run) dry=1 ;;
+            esac
+            if [[ -z "$verb" && "$arg" != -* ]]; then
+                verb="$arg"
+            fi
+        done
+
+        if [[ "$verb" == "use" && "$dry" -eq 0 ]]; then
+            path="$("$BASH" "$_GLOT_SELF" "$@")" || rc=$?
+            ((rc == 0)) || return "$rc"
+            if [[ -n "$path" && -d "$path" ]]; then
+                cd -- "$path" || return $?
+            fi
+            printf '%s\n' "$path"
+            return 0
+        fi
+
+        "$BASH" "$_GLOT_SELF" "$@"
+    }
+fi
