@@ -101,9 +101,47 @@ _glot_state_dir() {
     printf '%s\n' "$base/glot"
 }
 
-# _glot_state_file — archivo del estado: GLOT_STATE_FILE > <dir>/state.
+# _glot_state_slug <texto> — nombre de fichero seguro: letras, dígitos, punto, guion y guion
+# bajo; el resto se sustituye. Se recorta para que una carpeta con nombre absurdo no genere
+# un fichero absurdo.
+_glot_state_slug() {
+    local text="$1"
+
+    text="${text//[^A-Za-z0-9._-]/_}"
+    printf '%s\n' "${text:0:40}"
+}
+
+# _glot_state_key <raíz> — sufijo estable y corto que identifica esa raíz. `cksum` es POSIX
+# y está en cualquier coreutils, así que no hace falta sumar una dependencia.
+_glot_state_key() {
+    printf '%s' "$1" | cksum | awk '{printf "%08d", $1}'
+}
+
+# _glot_state_legacy_notice <dir> — el `state` global de las versiones anteriores **no se
+# migra**: se avisa una vez (con centinela) y se deja quieto, para que nadie pierda sin
+# darse cuenta el sprint que tuviera ahí.
+_glot_state_legacy_notice() {
+    local dir="$1"
+    local sentinel="$dir/.legacy-warned"
+
+    [[ -s "$dir/state" ]] || return 0
+    [[ -e "$sentinel" ]] && return 0
+
+    _glot_warn "hay un estado global de versiones anteriores que no se migra / there is a global state from earlier versions that is not migrated: $dir/state"
+    _glot_info 'el sprint ahora vive por raíz de monorepo / the sprint now lives per monorepo root: glot path'
+    touch -- "$sentinel" 2>/dev/null || true
+    return 0
+}
+
+# _glot_state_file — archivo del estado del sprint, en este orden (v1.0.0):
+#   1. `GLOT_STATE_FILE`, que manda siempre (así se aísla en pruebas y en herramientas);
+#   2. **por raíz de monorepo**: `<state_dir>/state.<clave>-<nombre de la raíz>`, porque dos
+#      monorepos no pueden compartir `lang/phase/module`;
+#   3. sin raíz (fuera de un repositorio), el fichero global `<state_dir>/state`, que es
+#      donde vivía el sprint antes de esta versión.
 _glot_state_file() {
     local dir=""
+    local root=""
 
     if [[ -n "${GLOT_STATE_FILE:-}" ]]; then
         printf '%s\n' "$GLOT_STATE_FILE"
@@ -111,7 +149,16 @@ _glot_state_file() {
     fi
 
     dir="$(_glot_state_dir)" || return 1
-    printf '%s\n' "$dir/state"
+
+    root="$(_glot_repo_root 2>/dev/null || true)"
+    if [[ -z "$root" ]]; then
+        printf '%s\n' "$dir/state"
+        _glot_state_legacy_notice "$dir"
+        return 0
+    fi
+
+    printf '%s/state.%s-%s\n' "$dir" "$(_glot_state_key "$root")" "$(_glot_state_slug "$(basename -- "$root")")"
+    _glot_state_legacy_notice "$dir"
 }
 
 # _glot_key_valid — las claves solo admiten letras, dígitos, punto, guion y guion bajo.
@@ -286,7 +333,7 @@ _glot_cmd_doctor() {
     fi
 
     local tool=""
-    for tool in flock mktemp sort awk cat; do
+    for tool in flock mktemp sort awk cat cksum; do
         if command -v "$tool" >/dev/null 2>&1; then
             printf '%s: %s\n' "$tool" "$(command -v "$tool")"
         else
@@ -312,6 +359,17 @@ _glot_cmd_doctor() {
     else
         printf 'state_dir: (no resoluble / unresolvable)\n'
         status=1
+    fi
+
+    # El sprint vive por raíz de monorepo (v1.0.0): se dice con qué raíz se resolvió y, si
+    # sigue ahí el fichero global de antes, que no se migra.
+    if [[ -n "$root" ]]; then
+        printf 'state_root: %s\n' "$root"
+    else
+        printf 'state_root: - (fuera de un monorepo / outside a monorepo)\n'
+    fi
+    if [[ -n "$state_dir" && -s "$state_dir/state" ]]; then
+        printf 'state_legacy: %s (no se migra / not migrated)\n' "$state_dir/state"
     fi
 
     if state_file="$(_glot_state_file)"; then
@@ -687,7 +745,7 @@ _glot_cmd_progress() {
 }
 
 # _glot_cmd_completion <shell> — imprime el guion de autocompletado en stdout. No lo
-# instala: eso es cosa de `install` (v1.0.0), que es quien toca el shell del usuario.
+# instala: eso es cosa de `install`, que es quien toca el shell del usuario.
 _glot_cmd_completion() {
     local shell="${1:-bash}"
     local file=""
@@ -2695,7 +2753,8 @@ _glot_help_verb() {
         completion)
             printf 'glot completion [bash|zsh] — imprime el autocompletado en stdout\n'
             printf 'glot completion [bash|zsh] — prints the completion script to stdout\n'
-            printf 'No lo instala: eso es de install (v1.0.0) / it does not install it: that is install (v1.0.0)\n'
+            printf 'No lo instala: eso es de install, que es quien toca el shell del usuario\n'
+            printf 'It does not install it: that is install, which is what touches the user shell\n'
             ;;
         test)
             printf 'glot test [lenguaje] [fase/módulo] — ejecuta la suite del módulo asignado\n'
@@ -3652,7 +3711,7 @@ _glot_cmd_use() {
 
     # 8. Dato para stdout: la ruta absoluta del módulo.
     printf '%s\n' "$module_dir"
-    _glot_info "recuerda / remember: cd \"\$(glot use $lang $target $kind)\" (el cd real llega en v1.0.0)"
+    _glot_info "recuerda / remember: cd \"\$(glot use $lang $target $kind)\" — o carga la capa con \"glot install\" y el cd lo hace use / or load the layer with \"glot install\" and use does the cd"
 
     return 0
 }
